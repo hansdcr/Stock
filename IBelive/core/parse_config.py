@@ -26,3 +26,6 @@ class ParseConfig:
     def get_mysql_config(self):
         return self.config.get("mysql", {})
     
+    def get_data_dir(self):
+        return self.config.get("data_dir", os.path.join(os.path.dirname(THIS_DIR), "data"))
+    
