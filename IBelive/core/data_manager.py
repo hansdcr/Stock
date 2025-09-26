@@ -10,6 +10,7 @@ sys.path.insert(0, THIS_DIR)
 
 # 导入模型
 from models.companies import Company
+from models.daily_data import DailyData
 
 data_dir = os.path.join(os.path.dirname(THIS_DIR), "data")
 
@@ -196,10 +197,92 @@ class StockDataManager:
                 cursor.close()
                 connection.close()
 
+    def fetch_stock_daily_data(self, ts_code, trade_date, fields=None):
+        """
+        获取单只股票在指定日期的交易数据
+        
+        :param ts_code: 股票代码，格式如 '000001.SZ'
+        :param trade_date: 交易日期，格式YYYYMMDD
+        :param fields: 要获取的字段列表，默认None表示所有字段
+        :return: pandas DataFrame 包含股票交易数据，如果无数据返回None
+        """
+        try:
+            # 使用 DailyData 类的默认字段
+            default_fields = DailyData.DEFAULT_FIELDS
+            
+            # 合并用户指定字段和默认字段
+            if fields is None:
+                fields = default_fields
+            else:
+                fields = list(set(fields + default_fields))
+            
+            # 构建查询参数
+            params = {
+                "ts_code": ts_code,
+                "trade_date": trade_date,
+            }
+            
+            # 执行查询
+            df = self.pro.daily(**params)
+            
+            if df.empty:
+                print(f"⚠️  未找到股票 {ts_code} 在 {trade_date} 的交易数据")
+                return None
+            
+            print(f"✅ 成功获取股票 {ts_code} 在 {trade_date} 的交易数据")
+            
+            # 转换日期字段为datetime.date类型
+            df['trade_date'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+            
+            # 转换其他数值字段为float类型
+            for field in ['open', 'high', 'low', 'close', 'vol', 'amount']:
+                if field in df.columns:
+                    # 避免链式赋值警告，直接赋值
+                    df[field] = pd.to_numeric(df[field], errors='coerce')
+                    # 处理NaN值
+                    df[field] = df[field].fillna(0.0)
+                    # 处理inf值
+                    df[field] = df[field].replace([float('inf'), float('-inf')], 0.0)
+            
+            # 保存数据到CSV文件
+            self.save_stock_daily_data_to_csv(df, ts_code, trade_date)
+
+            return df
+            
+        except Exception as e:
+            print(f"❌ 获取股票交易数据失败: {e}")
+            return None
+        
+    # 将同一个股票代码的所有数据保存到一个CSV文件
+    def save_stock_daily_data_to_csv(self, df, ts_code, trade_date):
+        """
+        保存单只股票交易数据到本地文件
+        
+        :param df: 包含交易数据的DataFrame
+        :param ts_code: 股票代码
+        :param trade_date: 交易日期
+        """
+        if df is None or df.empty:
+            print("⚠️  无数据可保存")
+            return
+        
+        # 构建文件名
+        filename = f"{self.data_dir}/daily_{ts_code}_{trade_date}.csv"
+        
+        # 确保目录存在
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        
+        # 保存到CSV
+        df.to_csv(filename,mode='a',index=False, encoding="utf-8-sig")
+        
+        print(f"✅ 股票交易数据已保存到 {filename}")
+
 
 
 if __name__ == "__main__":
     from parse_config import ParseConfig
     config = ParseConfig()
     manager = StockDataManager(config)
-    df = manager.fetch_listed_companies("20250925",save_to_mysql=True)
+    # df = manager.fetch_listed_companies("20250925",save_to_mysql=True)
+    # 获取日K线数据
+    df = manager.fetch_stock_daily_data("000001.SZ", "20250926")
