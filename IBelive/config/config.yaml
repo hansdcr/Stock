@@ -1,0 +1,12 @@
+# Local configuration file for Tushare API
+# This file is used to store sensitive information and should not be uploaded to version control systems.
+
+# Tushare API token
+token: "dcf8f4877b3f60f8d3f9061dddc4d6904c16157d8384c448b01fd77f"
+
+mysql:
+  host: "127.0.0.1"
+  port: 3306
+  user: "root"
+  password: "123456"
+  db: "stock"
