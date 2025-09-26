@@ -10,11 +10,11 @@ import sys
 import unittest
 from unittest.mock import patch, mock_open
 
-# 添加当前目录到 Python 路径以便导入 ParseConfig
+# 添加当前目录到 Python 路径以便导入 parse_config
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, THIS_DIR)
 
-from ParseConfig import ParseConfig  # noqa: E402
+from parse_config import ParseConfig  # noqa: E402
 
 
 class TestParseConfig(unittest.TestCase):
