@@ -30,4 +30,10 @@ if __name__ == "__main__":
     cfg = ParseConfig()
     token = cfg.get_token()
     print(token)
+    mysql_config = cfg.get_mysql_config()
+    print(mysql_config.get("host"))
+    print(mysql_config.get("port"))
+    print(mysql_config.get("user"))
+    print(mysql_config.get("password"))
+    print(mysql_config.get("database"))
     
