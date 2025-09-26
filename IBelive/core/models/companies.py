@@ -27,8 +27,8 @@ class Company:
     list_status: str = ""       # 上市状态
     list_date: date = None      # 上市日期
     delist_date: date = None    # 退市日期
-    is_hs: bool = False         # 是否沪深股票
-    is_st: bool = False         # 是否ST股票
+    is_hs: bool = False         # 是否沪深股票 (True/False) 
+    is_st: bool = False         # 是否ST股票 (True/False)
     
     @classmethod
     def get_default_fields(cls) -> str:
