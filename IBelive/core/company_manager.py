@@ -4,19 +4,15 @@ import sys
 import pandas as pd
 import mysql.connector
 from mysql.connector import Error
-from typing import List, Optional
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, THIS_DIR)
 
 # 导入模型
 from models.companies import Company
-from models.daily_data import DailyData
-from daily_data_manager import DailyDataManager
-
 data_dir = os.path.join(os.path.dirname(THIS_DIR), "data")
 
-class StockDataManager:
+class CompanyManager:
     
     def __init__(self, config_parser):
         self.config = config_parser
@@ -203,5 +199,5 @@ class StockDataManager:
 if __name__ == "__main__":
     from parse_config import ParseConfig
     config = ParseConfig()
-    manager = StockDataManager(config)
+    manager = CompanyManager(config)
     df = manager.fetch_listed_companies("20250925",save_to_mysql=True)
