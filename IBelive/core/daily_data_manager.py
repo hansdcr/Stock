@@ -356,64 +356,319 @@ class DailyDataManager:
         
         return df
 
+    def fetch_daily_data_by_trade_date(
+        self, 
+        trade_date: str, 
+        ts_codes: Optional[List[str]] = None,
+        fields: Optional[List[str]] = None
+    ) -> pd.DataFrame:
+        """
+        获取指定交易日期所有股票的数据（Tushare官方推荐方式）
+        
+        :param trade_date: 交易日期，格式YYYYMMDD
+        :param ts_codes: 股票代码列表，默认None表示所有股票
+        :param fields: 要获取的字段列表，默认None表示所有字段
+        :return: pandas DataFrame 包含指定交易日所有股票的数据
+        """
+        try:
+            # 构建查询参数
+            params = {
+                "trade_date": trade_date,
+                "fields": fields if fields else DailyData.DEFAULT_FIELDS
+            }
+            
+            # 如果指定了股票代码列表，添加到参数中
+            if ts_codes:
+                params["ts_code"] = ",".join(ts_codes)
+            
+            # 执行查询
+            df = self.pro.daily(**params)
+            
+            if df.empty:
+                print(f"⚠️  未找到 {trade_date} 的交易数据")
+                return pd.DataFrame()
+            
+            print(f"✅ 成功获取 {trade_date} 的交易数据，共 {len(df)} 条记录")
+            
+            # 数据预处理
+            df = self._preprocess_daily_data(df)
+            
+            # 添加数据状态标记
+            df['data_status'] = '正常'
+            df['status_reason'] = ''
+            
+            return df
+            
+        except Exception as e:
+            print(f"❌ 获取 {trade_date} 交易数据失败: {e}")
+            return pd.DataFrame()
+
+    def fetch_and_save_daily_data_by_trade_date(
+        self, 
+        trade_date: str, 
+        ts_codes: Optional[List[str]] = None,
+        fields: Optional[List[str]] = None
+    ) -> pd.DataFrame:
+        """
+        获取并保存指定交易日期所有股票的数据到MySQL
+        
+        :param trade_date: 交易日期，格式YYYYMMDD
+        :param ts_codes: 股票代码列表，默认None表示所有股票
+        :param fields: 要获取的字段列表，默认None表示所有字段
+        :return: pandas DataFrame 包含指定交易日所有股票的数据
+        """
+        # 获取当日数据
+        df = self.fetch_daily_data_by_trade_date(trade_date, ts_codes, fields)
+        
+        if df is not None and not df.empty:
+            # 保存到MySQL
+            self._save_daily_data_to_mysql(df, trade_date)
+        
+        return df
+
+    def _save_daily_data_to_mysql(self, df: pd.DataFrame, trade_date: str) -> bool:
+        """
+        保存单日股票数据到MySQL
+        
+        :param df: 包含股票数据的DataFrame
+        :param trade_date: 交易日期
+        :return: 是否保存成功
+        """
+        if df.empty:
+            print(f"⚠️  无数据可保存到MySQL，交易日期: {trade_date}")
+            return False
+        
+        # 构建表名
+        table_name = "daily_data"
+        
+        # 使用公共方法获取查询语句（包含状态字段）
+        create_table_query, insert_query, expected_columns, fill_missing_defaults = \
+            self._get_daily_data_table_queries(table_name, include_status_fields=True)
+        
+        # 首先确保表已创建
+        table_created = self.mysql_manager.create_table_if_not_exists(table_name, create_table_query)
+        
+        if not table_created:
+            print(f"❌ 创建表 {table_name} 失败")
+            return False
+        
+        # 转换日期字段为字符串类型 (YYYYMMDD格式)
+        df['trade_date'] = df['trade_date'].apply(
+            lambda x: x.strftime('%Y%m%d') if hasattr(x, 'strftime') else str(x).replace('-', '')
+        )
+        
+        # 使用MySQL管理器保存数据
+        success = self.mysql_manager.save_dataframe_to_table(
+            df=df,
+            table_name=table_name,
+            insert_query=insert_query,
+            expected_columns=expected_columns,
+            fill_missing_defaults=fill_missing_defaults
+        )
+
+        if success:
+            print(f"✅ 成功保存 {trade_date} 的数据到MySQL表 {table_name}，共 {len(df)} 条记录")
+        else:
+            print(f"⚠️  保存 {trade_date} 的数据到MySQL表 {table_name} 失败")
+        
+        return success
+
+    def fetch_and_save_daily_data_period_incremental(
+        self, 
+        ts_code: str, 
+        start_date: str, 
+        end_date: str, 
+        fields: Optional[List[str]] = None,
+        batch_size: int = 10
+    ) -> pd.DataFrame:
+        """
+        增量获取并保存指定时间段内每个交易日的股票数据到MySQL
+        每隔指定条数保存一次数据，降低数据丢失风险
+        
+        :param ts_code: 股票代码，格式如 '000001.SZ'
+        :param start_date: 开始日期，格式YYYYMMDD
+        :param end_date: 结束日期，格式YYYYMMDD
+        :param fields: 要获取的字段列表，默认None表示所有字段
+        :param batch_size: 批次大小，每隔多少条数据保存一次，默认10条
+        :return: pandas DataFrame 包含期间所有日期的股票数据
+        """
+        try:
+            # 获取交易日历
+            trade_cal = self.pro.trade_cal(
+                exchange='', 
+                start_date=start_date, 
+                end_date=end_date,
+                fields=['cal_date', 'is_open']
+            )
+            
+            if trade_cal.empty:
+                print(f"⚠️  未找到 {start_date} 到 {end_date} 的交易日历")
+                return pd.DataFrame()
+            
+            # 筛选交易日
+            trading_days = trade_cal[trade_cal['is_open'] == 1]['cal_date'].tolist()
+            
+            if not trading_days:
+                print(f"⚠️  {start_date} 到 {end_date} 期间没有交易日")
+                return pd.DataFrame()
+            
+            print(f"📅 找到 {len(trading_days)} 个交易日: {start_date} 到 {end_date}")
+            print(f"📦 使用增量保存模式，批次大小: {batch_size} 条数据")
+            
+            # 存储所有数据
+            all_data = []
+            batch_count = 0
+            total_saved = 0
+            
+            # 遍历所有交易日
+            for i, trade_date in enumerate(trading_days, 1):
+                try:
+                    # 获取单日数据
+                    daily_df = self.fetch_daily_data(ts_code, trade_date, fields)
+                    
+                    if daily_df is not None and not daily_df.empty:
+                        # 添加数据状态标记
+                        daily_df['data_status'] = '正常'
+                        daily_df['status_reason'] = ''
+                        all_data.append(daily_df)
+                        print(f"✅ 成功获取 {ts_code} 在 {trade_date} 的数据")
+                    else:
+                        # 创建空数据行并标记为停盘
+                        empty_row = self._create_empty_daily_data(ts_code, trade_date, fields)
+                        empty_row['data_status'] = '停盘'
+                        empty_row['status_reason'] = '当日停牌或无交易数据'
+                        all_data.append(empty_row)
+                        print(f"⚠️  {ts_code} 在 {trade_date} 停盘或无数据")
+                    
+                    # 检查是否达到批次大小需要保存
+                    batch_count += 1
+                    if batch_count >= batch_size or i == len(trading_days):
+                        # 合并当前批次数据
+                        if all_data:
+                            batch_df = pd.concat(all_data, ignore_index=True)
+                            # 保存当前批次到MySQL
+                            self._save_period_data_to_mysql(batch_df, ts_code, start_date, end_date)
+                            total_saved += len(batch_df)
+                            print(f"💾 已保存第 {len(batch_df)} 条数据到MySQL (累计保存: {total_saved} 条)")
+                            
+                            # 清空当前批次数据
+                            all_data = []
+                            batch_count = 0
+                        
+                except Exception as e:
+                    print(f"❌ 获取 {ts_code} 在 {trade_date} 的数据时出错: {e}")
+                    # 创建空数据行并标记为错误
+                    error_row = self._create_empty_daily_data(ts_code, trade_date, fields)
+                    error_row['data_status'] = '错误'
+                    error_row['status_reason'] = f'数据获取失败: {str(e)}'
+                    all_data.append(error_row)
+                    
+                    # 即使出错也尝试保存当前批次
+                    batch_count += 1
+                    if batch_count >= batch_size or i == len(trading_days):
+                        if all_data:
+                            batch_df = pd.concat(all_data, ignore_index=True)
+                            self._save_period_data_to_mysql(batch_df, ts_code, start_date, end_date)
+                            total_saved += len(batch_df)
+                            print(f"💾 错误后保存第 {len(batch_df)} 条数据到MySQL (累计保存: {total_saved} 条)")
+                            all_data = []
+                            batch_count = 0
+            
+            # 最终合并所有数据返回
+            if all_data:
+                result_df = pd.concat(all_data, ignore_index=True)
+                print(f"✅ 成功获取 {ts_code} 在 {start_date} 到 {end_date} 期间的 {len(result_df)} 条数据记录")
+                print(f"💾 总计保存 {total_saved} 条数据到MySQL数据库")
+                return result_df
+            else:
+                print(f"⚠️  未获取到 {ts_code} 在 {start_date} 到 {end_date} 期间的任何数据")
+                return pd.DataFrame()
+                
+        except Exception as e:
+            print(f"❌ 增量获取期间股票数据失败: {e}")
+            return pd.DataFrame()
+
     def fetch_all_stocks_daily_data_period(
         self, 
         start_date: str, 
         end_date: str, 
         fields: Optional[List[str]] = None,
-        save_to_mysql: bool = False
+        save_to_mysql: bool = False,
+        incremental_save: bool = False,
+        batch_size: int = 10
     ) -> Dict[str, pd.DataFrame]:
         """
-        获取指定时间段内所有股票的日线数据
+        获取指定时间段内所有股票的日线数据（Tushare官方推荐方式）
         
         :param start_date: 开始日期，格式YYYYMMDD
         :param end_date: 结束日期，格式YYYYMMDD
         :param fields: 要获取的字段列表，默认None表示所有字段
         :param save_to_mysql: 是否保存到MySQL数据库，默认False
+        :param incremental_save: 是否使用增量保存模式，默认False
+        :param batch_size: 增量保存时的批次大小，默认10条
         :return: 字典，键为股票代码，值为包含期间所有日期的股票数据的DataFrame
         """
-        from company_manager import CompanyManager
-        
         try:
-            # 获取所有上市股票列表
-            company_manager = CompanyManager(self.config)
-            all_stocks_df = company_manager.fetch_listed_companies()
+            # 获取交易日历
+            trade_cal = self.pro.trade_cal(
+                exchange='', 
+                start_date=start_date, 
+                end_date=end_date,
+                fields=['cal_date', 'is_open']
+            )
             
-            if all_stocks_df.empty:
-                print("⚠️  未获取到任何上市股票信息")
+            if trade_cal.empty:
+                print(f"⚠️  未找到 {start_date} 到 {end_date} 的交易日历")
                 return {}
             
-            # 获取所有股票代码
-            all_stocks = all_stocks_df['ts_code'].tolist()
-            print(f"📊 找到 {len(all_stocks)} 只上市股票")
+            # 筛选交易日
+            trading_days = trade_cal[trade_cal['is_open'] == 1]['cal_date'].tolist()
             
-            # 存储所有股票的数据
+            if not trading_days:
+                print(f"⚠️  {start_date} 到 {end_date} 期间没有交易日")
+                return {}
+            
+            print(f"📅 找到 {len(trading_days)} 个交易日: {start_date} 到 {end_date}")
+            
+            # 存储所有股票的数据（按股票代码组织）
             all_stocks_data = {}
             
-            # 遍历所有股票，获取期间数据
-            for i, ts_code in enumerate(all_stocks, 1):
+            # 按交易日期循环（Tushare官方推荐方式）
+            for i, trade_date in enumerate(trading_days, 1):
                 try:
-                    print(f"\n🔍 正在处理第 {i}/{len(all_stocks)} 只股票: {ts_code}")
+                    print(f"\n📊 正在处理第 {i}/{len(trading_days)} 个交易日: {trade_date}")
                     
                     if save_to_mysql:
-                        # 获取并保存数据到MySQL
-                        stock_df = self.fetch_and_save_daily_data_period(ts_code, start_date, end_date, fields)
+                        # 获取并保存当日所有股票数据到MySQL
+                        daily_df = self.fetch_and_save_daily_data_by_trade_date(trade_date, None, fields)
                     else:
-                        # 只获取数据，不保存到MySQL
-                        stock_df = self.fetch_daily_data_period(ts_code, start_date, end_date, fields)
+                        # 只获取当日所有股票数据
+                        daily_df = self.fetch_daily_data_by_trade_date(trade_date, None, fields)
                     
-                    if stock_df is not None and not stock_df.empty:
-                        all_stocks_data[ts_code] = stock_df
-                        print(f"✅ 成功获取 {ts_code} 在 {start_date} 到 {end_date} 期间的 {len(stock_df)} 条数据")
+                    if daily_df is not None and not daily_df.empty:
+                        # 按股票代码组织数据
+                        for _, row in daily_df.iterrows():
+                            ts_code = row['ts_code']
+                            if ts_code not in all_stocks_data:
+                                all_stocks_data[ts_code] = []
+                            all_stocks_data[ts_code].append(row)
+                        
+                        print(f"✅ 成功处理 {trade_date} 的数据，共 {len(daily_df)} 条记录")
                     else:
-                        print(f"⚠️  未获取到 {ts_code} 在 {start_date} 到 {end_date} 期间的任何数据")
+                        print(f"⚠️  未获取到 {trade_date} 的交易数据")
                         
                 except Exception as e:
-                    print(f"❌ 处理股票 {ts_code} 时发生错误: {e}")
+                    print(f"❌ 处理交易日 {trade_date} 时发生错误: {e}")
                     continue
             
-            print(f"\n🎉 完成! 成功获取 {len(all_stocks_data)} 只股票的日线数据")
-            return all_stocks_data
+            # 将每个股票的数据列表转换为DataFrame
+            result_data = {}
+            for ts_code, data_list in all_stocks_data.items():
+                if data_list:
+                    result_data[ts_code] = pd.DataFrame(data_list)
+            
+            print(f"\n🎉 完成! 成功获取 {len(result_data)} 只股票的日线数据")
+            return result_data
             
         except Exception as e:
             print(f"❌ 获取所有股票日线数据失败: {e}")
@@ -425,16 +680,20 @@ class DailyDataManager:
         start_date: str, 
         end_date: str, 
         fields: Optional[List[str]] = None,
-        save_to_mysql: bool = False
+        save_to_mysql: bool = False,
+        incremental_save: bool = False,
+        batch_size: int = 10
     ) -> Dict[str, pd.DataFrame]:
         """
-        获取指定股票列表中从开始日期到结束日期的日线数据
+        获取指定股票列表中从开始日期到结束日期的日线数据（Tushare官方推荐方式）
         
         :param stocks_list: 股票代码列表，格式如 ['000001.SZ', '600000.SH']
         :param start_date: 开始日期，格式YYYYMMDD
         :param end_date: 结束日期，格式YYYYMMDD
         :param fields: 要获取的字段列表，默认None表示所有字段
         :param save_to_mysql: 是否保存到MySQL数据库，默认False
+        :param incremental_save: 是否使用增量保存模式，默认False
+        :param batch_size: 增量保存时的批次大小，默认10条
         :return: 字典，键为股票代码，值为包含期间所有日期的股票数据的DataFrame
         """
         try:
@@ -444,33 +703,66 @@ class DailyDataManager:
             
             print(f"📊 开始处理 {len(stocks_list)} 只指定股票的日线数据")
             
-            # 存储所有股票的数据
+            # 获取交易日历
+            trade_cal = self.pro.trade_cal(
+                exchange='', 
+                start_date=start_date, 
+                end_date=end_date,
+                fields=['cal_date', 'is_open']
+            )
+            
+            if trade_cal.empty:
+                print(f"⚠️  未找到 {start_date} 到 {end_date} 的交易日历")
+                return {}
+            
+            # 筛选交易日
+            trading_days = trade_cal[trade_cal['is_open'] == 1]['cal_date'].tolist()
+            
+            if not trading_days:
+                print(f"⚠️  {start_date} 到 {end_date} 期间没有交易日")
+                return {}
+            
+            print(f"📅 找到 {len(trading_days)} 个交易日: {start_date} 到 {end_date}")
+            
+            # 存储所有股票的数据（按股票代码组织）
             stocks_data = {}
             
-            # 遍历指定股票列表，获取期间数据
-            for i, ts_code in enumerate(stocks_list, 1):
+            # 按交易日期循环（Tushare官方推荐方式）
+            for i, trade_date in enumerate(trading_days, 1):
                 try:
-                    print(f"\n🔍 正在处理第 {i}/{len(stocks_list)} 只股票: {ts_code}")
+                    print(f"\n📊 正在处理第 {i}/{len(trading_days)} 个交易日: {trade_date}")
                     
                     if save_to_mysql:
-                        # 获取并保存数据到MySQL
-                        stock_df = self.fetch_and_save_daily_data_period(ts_code, start_date, end_date, fields)
+                        # 获取并保存当日指定股票数据到MySQL
+                        daily_df = self.fetch_and_save_daily_data_by_trade_date(trade_date, stocks_list, fields)
                     else:
-                        # 只获取数据，不保存到MySQL
-                        stock_df = self.fetch_daily_data_period(ts_code, start_date, end_date, fields)
+                        # 只获取当日指定股票数据
+                        daily_df = self.fetch_daily_data_by_trade_date(trade_date, stocks_list, fields)
                     
-                    if stock_df is not None and not stock_df.empty:
-                        stocks_data[ts_code] = stock_df
-                        print(f"✅ 成功获取 {ts_code} 在 {start_date} 到 {end_date} 期间的 {len(stock_df)} 条数据")
+                    if daily_df is not None and not daily_df.empty:
+                        # 按股票代码组织数据
+                        for _, row in daily_df.iterrows():
+                            ts_code = row['ts_code']
+                            if ts_code not in stocks_data:
+                                stocks_data[ts_code] = []
+                            stocks_data[ts_code].append(row)
+                        
+                        print(f"✅ 成功处理 {trade_date} 的数据，共 {len(daily_df)} 条记录")
                     else:
-                        print(f"⚠️  未获取到 {ts_code} 在 {start_date} 到 {end_date} 期间的任何数据")
+                        print(f"⚠️  未获取到 {trade_date} 指定股票的交易数据")
                         
                 except Exception as e:
-                    print(f"❌ 处理股票 {ts_code} 时发生错误: {e}")
+                    print(f"❌ 处理交易日 {trade_date} 时发生错误: {e}")
                     continue
             
-            print(f"\n🎉 完成! 成功获取 {len(stocks_data)} 只指定股票的日线数据")
-            return stocks_data
+            # 将每个股票的数据列表转换为DataFrame
+            result_data = {}
+            for ts_code, data_list in stocks_data.items():
+                if data_list:
+                    result_data[ts_code] = pd.DataFrame(data_list)
+            
+            print(f"\n🎉 完成! 成功获取 {len(result_data)} 只指定股票的日线数据")
+            return result_data
             
         except Exception as e:
             print(f"❌ 获取指定股票列表日线数据失败: {e}")
@@ -562,6 +854,29 @@ if __name__ == "__main__":
     from parse_config import ParseConfig
     config = ParseConfig()
     daily_manager = DailyDataManager(config, tushare.pro_api(config.get_token()))
+    
+    # # 测试新方法：按交易日获取数据
+    # print("🧪 测试 fetch_daily_data_by_trade_date 方法...")
+    # trade_date_data = daily_manager.fetch_daily_data_by_trade_date("20250926", ["000001.SZ", "600000.SH"])
+    # print(f"获取到 {len(trade_date_data)} 条记录" if trade_date_data is not None else "未获取到数据")
+    
+    # print("\n🧪 测试 fetch_and_save_daily_data_by_trade_date 方法...")
+    # saved_trade_date_data = daily_manager.fetch_and_save_daily_data_by_trade_date("20250926", ["000001.SZ", "600000.SH"])
+    # print(f"获取并保存 {len(saved_trade_date_data)} 条记录" if saved_trade_date_data is not None else "未获取到数据")
+    
+    # 测试fetch_all_stocks_daily_data_period（使用新的按交易日方式）
+    print("\n🧪 测试 fetch_all_stocks_daily_data_period（按交易日方式）...")
+    all_stocks_data = daily_manager.fetch_all_stocks_daily_data_period("20250101", "20250927", save_to_mysql=True,incremental_save=True)
+    print(f"获取到 {len(all_stocks_data)} 只股票的数据")
+
+    # # 测试fetch_stocks_list_daily_data_period（使用新的按交易日方式）
+    # print("\n🧪 测试 fetch_stocks_list_daily_data_period（按交易日方式）...")
+    # stocks_list = ["000001.SZ", "000002.SZ"]
+    # stocks_data = daily_manager.fetch_stocks_list_daily_data_period(stocks_list, "20250921", "20250926", save_to_mysql=True)
+    # print(f"获取到 {len(stocks_data)} 只指定股票的数据")
+
+    # 原始方法测试（保留以供对比）
+    print("\n🧪 原始方法测试（对比用）...")
     # 获取并保存000001.SZ在20250926的交易数据
     #df = daily_manager.fetch_and_save_daily_data("000001.SZ", "20250926")
     # df = daily_manager.fetch_and_save_daily_data("000001.SZ", "20250917")
@@ -574,11 +889,4 @@ if __name__ == "__main__":
     # df = daily_manager.fetch_and_save_daily_data_period("000001.SZ", "20250919", "20250926")
     # print(df)
 
-    # 测试fetch_all_stocks_daily_data_period
-    # all_stocks_data = daily_manager.fetch_all_stocks_daily_data_period("20250925", "20250926", save_to_mysql=True)
-    # print(all_stocks_data)
 
-    # # 测试fetch_stocks_list_daily_data_period
-    # stocks_list = ["000001.SZ", "000002.SZ"]
-    # stocks_data = daily_manager.fetch_stocks_list_daily_data_period(stocks_list, "20250921", "20250926", save_to_mysql=True)
-    # print(stocks_data)
