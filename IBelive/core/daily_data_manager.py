@@ -4,11 +4,10 @@
 """
 import os
 import pandas as pd
-import mysql.connector
-from mysql.connector import Error
 import tushare
 from typing import List, Optional
 from models.daily_data import DailyData
+from mysql_manager import MySQLManager
 
 
 class DailyDataManager:
@@ -24,6 +23,7 @@ class DailyDataManager:
         self.config = config
         self.pro = pro
         self.data_dir = config.get_data_dir()
+        self.mysql_manager = MySQLManager(config)
     
     def fetch_daily_data(self, ts_code: str, trade_date: str, fields: Optional[List[str]] = None) -> Optional[pd.DataFrame]:
         """
@@ -144,88 +144,60 @@ class DailyDataManager:
         :param df: 包含数据的DataFrame
         :param table_name: 数据库表名
         """
-        try:
-            # 获取MySQL配置
-            mysql_config = self.config.get_mysql_config()
-            
-            # 建立数据库连接
-            connection = mysql.connector.connect(
-                host=mysql_config['host'],
-                port=mysql_config['port'],
-                user=mysql_config['user'],
-                password=mysql_config['password'],
-                database=mysql_config['db']
-            )
-            
-            if connection.is_connected():
-                cursor = connection.cursor()
-                
-                # 创建日线数据表（如果不存在）
-                create_table_query = f"""
-                CREATE TABLE IF NOT EXISTS {table_name} (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    ts_code VARCHAR(20),
-                    trade_date VARCHAR(8),
-                    open FLOAT,
-                    high FLOAT,
-                    low FLOAT,
-                    close FLOAT,
-                    pre_close FLOAT,
-                    `change` FLOAT,
-                    pct_chg FLOAT,
-                    vol FLOAT,
-                    amount FLOAT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    UNIQUE KEY unique_stock_date (ts_code, trade_date)
-                )
-                """
-                cursor.execute(create_table_query)
-                
-                # 检查并添加缺失的字段，设置默认值
-                expected_columns = DailyData.DEFAULT_FIELDS
-                
-                for col in expected_columns:
-                    if col not in df.columns:
-                        if col in ['open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount']:
-                            df[col] = 0.0  # 数值字段默认0.0
-                        else:
-                            df[col] = None  # 其他字段默认None
-                
-                # 准备插入数据
-                insert_query = f"""
-                INSERT INTO {table_name} (ts_code, trade_date, open, high, low, close, pre_close, `change`, pct_chg, vol, amount)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    open = VALUES(open),
-                    high = VALUES(high),
-                    low = VALUES(low),
-                    close = VALUES(close),
-                    pre_close = VALUES(pre_close),
-                    `change` = VALUES(`change`),
-                    pct_chg = VALUES(pct_chg),
-                    vol = VALUES(vol),
-                    amount = VALUES(amount),
-                    updated_at = CURRENT_TIMESTAMP
-                """
-                
-                # 转换DataFrame为元组列表
-                data_tuples = [tuple(x) for x in df[expected_columns].to_numpy()]
-                
-                # 批量插入数据
-                cursor.executemany(insert_query, data_tuples)
-                connection.commit()
-                
-                print(f"✅ 成功保存 {len(data_tuples)} 条记录到MySQL表 {table_name}")
-                
-        except Error as e:
-            print(f"❌ MySQL保存失败: {e}")
-            if 'connection' in locals() and connection.is_connected():
-                connection.rollback()
-        finally:
-            if 'connection' in locals() and connection.is_connected():
-                cursor.close()
-                connection.close()
+        # 创建日线数据表（如果不存在）
+        create_table_query = f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            ts_code VARCHAR(20),
+            trade_date VARCHAR(8),
+            open FLOAT,
+            high FLOAT,
+            low FLOAT,
+            close FLOAT,
+            pre_close FLOAT,
+            `change` FLOAT,
+            pct_chg FLOAT,
+            vol FLOAT,
+            amount FLOAT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_stock_date (ts_code, trade_date)
+        )
+        """
+        
+        # 准备插入数据
+        insert_query = f"""
+        INSERT INTO {table_name} (ts_code, trade_date, open, high, low, close, pre_close, `change`, pct_chg, vol, amount)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            open = VALUES(open),
+            high = VALUES(high),
+            low = VALUES(low),
+            close = VALUES(close),
+            pre_close = VALUES(pre_close),
+            `change` = VALUES(`change`),
+            pct_chg = VALUES(pct_chg),
+            vol = VALUES(vol),
+            amount = VALUES(amount),
+            updated_at = CURRENT_TIMESTAMP
+        """
+        
+        # 使用MySQL管理器保存数据
+        success = self.mysql_manager.save_dataframe_to_table(
+            df=df,
+            table_name=table_name,
+            insert_query=insert_query,
+            expected_columns=DailyData.DEFAULT_FIELDS,
+            fill_missing_defaults={
+                'open': 0.0, 'high': 0.0, 'low': 0.0, 'close': 0.0,
+                'pre_close': 0.0, 'change': 0.0, 'pct_chg': 0.0,
+                'vol': 0.0, 'amount': 0.0
+            }
+        )
+        
+        if success:
+            # 确保表结构正确
+            self.mysql_manager.create_table_if_not_exists(table_name, create_table_query)
 
     def fetch_and_save_daily_data(self, ts_code: str, trade_date: str, fields: Optional[List[str]] = None) -> Optional[pd.DataFrame]:
         """
@@ -247,4 +219,4 @@ if __name__ == "__main__":
     daily_manager = DailyDataManager(config, tushare.pro_api(config.get_token()))
     # 获取并保存000001.SZ在20250926的交易数据
     #df = daily_manager.fetch_and_save_daily_data("000001.SZ", "20250926")
-    df = daily_manager.fetch_and_save_daily_data("000001.SZ", "20250925")
+    df = daily_manager.fetch_and_save_daily_data("000001.SZ", "20250924")

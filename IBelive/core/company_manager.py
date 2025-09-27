@@ -2,14 +2,13 @@ import tushare
 import os
 import sys
 import pandas as pd
-import mysql.connector
-from mysql.connector import Error
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, THIS_DIR)
 
 # 导入模型
 from models.companies import Company
+from mysql_manager import MySQLManager
 data_dir = os.path.join(os.path.dirname(THIS_DIR), "data")
 
 class CompanyManager:
@@ -18,6 +17,7 @@ class CompanyManager:
         self.config = config_parser
         self.pro = tushare.pro_api(self.config.get_token())
         self.data_dir = os.path.join(os.path.dirname(THIS_DIR), "data")
+        self.mysql_manager = MySQLManager(config_parser)
         
     def fetch_listed_companies(self, asof_date=None, fields=None, save_to_mysql=False):
         """
@@ -88,112 +88,94 @@ class CompanyManager:
         :param table_name: 数据库表名，默认为listed_companies
         :param asof_date: 查询日期，用于数据版本标识
         """
-        try:
-            # 获取MySQL配置
-            mysql_config = self.config.get_mysql_config()
-            
-            # 建立数据库连接
-            connection = mysql.connector.connect(
-                host=mysql_config['host'],
-                port=mysql_config['port'],
-                user=mysql_config['user'],
-                password=mysql_config['password'],
-                database=mysql_config['db']
-            )
-            
-            if connection.is_connected():
-                cursor = connection.cursor()
-                
-                # 创建表（如果不存在）
-                create_table_query = f"""
-                CREATE TABLE IF NOT EXISTS {table_name} (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    ts_code VARCHAR(20),
-                    symbol VARCHAR(20),
-                    name VARCHAR(100),
-                    area VARCHAR(50),
-                    industry VARCHAR(100),
-                    fullname VARCHAR(200),
-                    enname VARCHAR(200),
-                    cnspell VARCHAR(100),
-                    market VARCHAR(20),
-                    exchange VARCHAR(20),
-                    list_status VARCHAR(10),
-                    list_date VARCHAR(8),
-                    delist_date VARCHAR(8),
-                    is_hs BOOLEAN,
-                    is_st BOOLEAN,
-                    asof_date VARCHAR(8),
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    UNIQUE KEY unique_stock_date (ts_code, asof_date)
-                )
-                """
-                cursor.execute(create_table_query)
-                
-                # 添加asof_date列到数据中
-                df_with_date = df.copy()
-                df_with_date['asof_date'] = asof_date if asof_date else pd.Timestamp.now().strftime('%Y%m%d')
-                
-                # 检查并添加缺失的字段，设置默认值
-                expected_columns = ['ts_code', 'symbol', 'name', 'area', 'industry', 'fullname', 'enname', 'cnspell', 
-                                  'market', 'exchange', 'list_status', 'list_date', 'delist_date', 'is_hs', 'is_st']
-                
-                for col in expected_columns:
-                    if col not in df_with_date.columns:
-                        if col == 'is_hs' or col == 'is_st':
-                            df_with_date[col] = 'N'  # 布尔字段默认'N'
-                        elif col in ['fullname', 'enname', 'cnspell']:
-                            df_with_date[col] = ''  # 字符串字段默认空字符串
-                        else:
-                            df_with_date[col] = None  # 其他字段默认None
-                
-                # 转换Tushare的字符串布尔值为MySQL兼容的布尔值
-                if 'is_hs' in df_with_date.columns:
-                    df_with_date['is_hs'] = df_with_date['is_hs'].apply(lambda x: True if x == 'S' else False)
-                if 'is_st' in df_with_date.columns:
-                    df_with_date['is_st'] = df_with_date['is_st'].apply(lambda x: True if x == 'S' else False)
-                
-                # 准备插入数据
-                insert_query = f"""
-                INSERT INTO {table_name} (ts_code, symbol, name, area, industry, fullname, enname, cnspell, 
-                                        market, exchange, list_status, list_date, delist_date, is_hs, is_st, asof_date)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    symbol = VALUES(symbol),
-                    name = VALUES(name),
-                    area = VALUES(area),
-                    industry = VALUES(industry),
-                    fullname = VALUES(fullname),
-                    enname = VALUES(enname),
-                    cnspell = VALUES(cnspell),
-                    market = VALUES(market),
-                    exchange = VALUES(exchange),
-                    list_status = VALUES(list_status),
-                    list_date = VALUES(list_date),
-                    delist_date = VALUES(delist_date),
-                    is_hs = VALUES(is_hs),
-                    is_st = VALUES(is_st),
-                    updated_at = CURRENT_TIMESTAMP
-                """
-                
-                # 转换DataFrame为元组列表
-                data_tuples = [tuple(x) for x in df_with_date[expected_columns + ['asof_date']].to_numpy()]
-                
-                # 批量插入数据
-                cursor.executemany(insert_query, data_tuples)
-                connection.commit()
-                
-                print(f"✅ 成功保存 {len(data_tuples)} 条记录到MySQL表 {table_name}")
-                
-        except Error as e:
-            print(f"❌ MySQL保存失败: {e}")
-            if 'connection' in locals() and connection.is_connected():
-                connection.rollback()
-        finally:
-            if 'connection' in locals() and connection.is_connected():
-                cursor.close()
-                connection.close()
+        if df is None or df.empty:
+            print("⚠️  无数据可保存")
+            return False
+        
+        # 添加asof_date列到数据中
+        df_with_date = df.copy()
+        df_with_date['asof_date'] = asof_date if asof_date else pd.Timestamp.now().strftime('%Y%m%d')
+        
+        # 检查并添加缺失的字段，设置默认值
+        expected_columns = ['ts_code', 'symbol', 'name', 'area', 'industry', 'fullname', 'enname', 'cnspell', 
+                          'market', 'exchange', 'list_status', 'list_date', 'delist_date', 'is_hs', 'is_st', 'asof_date']
+        
+        for col in expected_columns:
+            if col not in df_with_date.columns:
+                if col == 'is_hs' or col == 'is_st':
+                    df_with_date[col] = 'N'  # 布尔字段默认'N'
+                elif col in ['fullname', 'enname', 'cnspell']:
+                    df_with_date[col] = ''  # 字符串字段默认空字符串
+                else:
+                    df_with_date[col] = None  # 其他字段默认None
+        
+        # 转换Tushare的字符串布尔值为MySQL兼容的布尔值
+        if 'is_hs' in df_with_date.columns:
+            df_with_date['is_hs'] = df_with_date['is_hs'].apply(lambda x: True if x == 'S' else False)
+        if 'is_st' in df_with_date.columns:
+            df_with_date['is_st'] = df_with_date['is_st'].apply(lambda x: True if x == 'S' else False)
+        
+        # 创建表SQL
+        create_table_query = f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            ts_code VARCHAR(20),
+            symbol VARCHAR(20),
+            name VARCHAR(100),
+            area VARCHAR(50),
+            industry VARCHAR(100),
+            fullname VARCHAR(200),
+            enname VARCHAR(200),
+            cnspell VARCHAR(100),
+            market VARCHAR(20),
+            exchange VARCHAR(20),
+            list_status VARCHAR(10),
+            list_date VARCHAR(8),
+            delist_date VARCHAR(8),
+            is_hs BOOLEAN,
+            is_st BOOLEAN,
+            asof_date VARCHAR(8),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_stock_date (ts_code, asof_date)
+        )
+        """
+        
+        # 插入数据SQL
+        insert_query = f"""
+        INSERT INTO {table_name} (ts_code, symbol, name, area, industry, fullname, enname, cnspell, 
+                                market, exchange, list_status, list_date, delist_date, is_hs, is_st, asof_date)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            symbol = VALUES(symbol),
+            name = VALUES(name),
+            area = VALUES(area),
+            industry = VALUES(industry),
+            fullname = VALUES(fullname),
+            enname = VALUES(enname),
+            cnspell = VALUES(cnspell),
+            market = VALUES(market),
+            exchange = VALUES(exchange),
+            list_status = VALUES(list_status),
+            list_date = VALUES(list_date),
+            delist_date = VALUES(delist_date),
+            is_hs = VALUES(is_hs),
+            is_st = VALUES(is_st),
+            updated_at = CURRENT_TIMESTAMP
+        """
+        
+        # 首先确保表已创建
+        table_created = self.mysql_manager.create_table_if_not_exists(table_name, create_table_query)
+        
+        # 使用MySQLManager保存数据
+        success = self.mysql_manager.save_dataframe_to_table(
+            df=df_with_date,
+            table_name=table_name,
+            insert_query=insert_query,
+            expected_columns=expected_columns
+        )
+        
+        return success
 
 
 if __name__ == "__main__":
