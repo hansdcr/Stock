@@ -182,6 +182,9 @@ class DailyDataManager:
             updated_at = CURRENT_TIMESTAMP
         """
         
+        # 首先确保表已创建
+        table_created = self.mysql_manager.create_table_if_not_exists(table_name, create_table_query)
+        
         # 使用MySQL管理器保存数据
         success = self.mysql_manager.save_dataframe_to_table(
             df=df,
@@ -194,10 +197,11 @@ class DailyDataManager:
                 'vol': 0.0, 'amount': 0.0
             }
         )
-        
+
         if success:
-            # 确保表结构正确
-            self.mysql_manager.create_table_if_not_exists(table_name, create_table_query)
+            print(f"✅ 股票交易数据已成功保存到MySQL表 {table_name}")
+        else:
+            print(f"⚠️  股票交易数据保存到MySQL表 {table_name} 失败")
 
     def fetch_and_save_daily_data(self, ts_code: str, trade_date: str, fields: Optional[List[str]] = None) -> Optional[pd.DataFrame]:
         """
