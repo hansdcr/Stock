@@ -142,6 +142,8 @@ class MySQLManager:
             
             if success:
                 print(f"✅ 成功保存 {len(data_tuples)} 条记录到MySQL表 {table_name}")
+            else:
+                print(f"⚠️  保存 {len(data_tuples)} 条记录到MySQL表 {table_name} 失败")
             
             return success
             
@@ -157,6 +159,83 @@ class MySQLManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """上下文管理器出口"""
         self.disconnect()
+
+    def query_data(
+        self, 
+        table_name: str, 
+        columns: Optional[List[str]] = None, 
+        conditions: Optional[str] = None,
+        params: Optional[list] = None,
+        order_by: Optional[str] = None,
+        limit: Optional[int] = None
+    ) -> Optional[pd.DataFrame]:
+        """
+        通用查询方法：根据表名、字段、条件语句查询数据
+        
+        :param table_name: 表名
+        :param columns: 要查询的字段列表，None表示查询所有字段
+        :param conditions: WHERE条件语句（不包含WHERE关键字）
+        :param params: 查询参数列表
+        :param order_by: ORDER BY子句（不包含ORDER BY关键字）
+        :param limit: 限制返回记录数
+        :return: 查询结果的DataFrame，失败返回None
+        """
+        try:
+            # 构建SELECT子句
+            if columns:
+                columns_str = ", ".join(columns)
+            else:
+                columns_str = "*"
+            
+            # 构建基础查询语句
+            query = f"SELECT {columns_str} FROM {table_name}"
+            
+            # 添加WHERE条件
+            if conditions:
+                query += f" WHERE {conditions}"
+            
+            # 添加ORDER BY
+            if order_by:
+                query += f" ORDER BY {order_by}"
+            
+            # 添加LIMIT
+            if limit:
+                query += f" LIMIT {limit}"
+            
+            # 执行查询
+            result = self.execute_query(query, params)
+            
+            if result is None:
+                return None
+            
+            # 获取列名
+            if not self.connection or not self.connection.is_connected():
+                self.connect()
+            
+            cursor = self.connection.cursor()
+            cursor.execute(f"SELECT * FROM {table_name} LIMIT 0")
+            column_names = [desc[0] for desc in cursor.description]
+            cursor.close()
+            
+            # 如果指定了列，使用指定的列名
+            if columns:
+                # 确保查询结果列数与指定列数匹配
+                if len(result[0]) == len(columns):
+                    column_names = columns
+                else:
+                    print(f"⚠️  查询列数({len(result[0])})与指定列数({len(columns)})不匹配，使用实际列名")
+            
+            # 转换为DataFrame
+            df = pd.DataFrame(result, columns=column_names)
+            print(f"✅ 成功查询到 {len(df)} 条记录")
+            return df
+            
+        except Error as e:
+            print(f"❌ 查询数据失败: {e}")
+            return None
+        except Exception as e:
+            print(f"❌ 查询过程中发生异常: {e}")
+            return None
 
 
 # 示例用法
