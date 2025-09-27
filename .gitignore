@@ -63,4 +63,5 @@ build/
 *.tar.xz
 
 config/config.yaml
+IBelive/config/config.yaml
 data/
