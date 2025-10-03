@@ -133,7 +133,7 @@ class DailyDataManager:
         CREATE TABLE IF NOT EXISTS {table_name} (
             id INT AUTO_INCREMENT PRIMARY KEY,
             ts_code VARCHAR(20),
-            trade_date VARCHAR(8),
+            trade_date DATETIME,
             open FLOAT,
             high FLOAT,
             low FLOAT,
@@ -218,9 +218,9 @@ class DailyDataManager:
             # 构建表名
             table_name = "daily_data"
             
-            # 转换日期字段为字符串类型 (YYYYMMDD格式)
+            # 转换日期字段为datetime类型 (确保MySQL正确存储为datetime格式)
             df['trade_date'] = df['trade_date'].apply(
-                lambda x: x.strftime('%Y%m%d') if hasattr(x, 'strftime') else str(x).replace('-', '')
+                lambda x: pd.to_datetime(x) if not pd.api.types.is_datetime64_any_dtype(x) else x
             )
             
             # 使用公共方法获取查询语句（包含状态字段）
@@ -452,9 +452,9 @@ class DailyDataManager:
             print(f"❌ 创建表 {table_name} 失败")
             return False
         
-        # 转换日期字段为字符串类型 (YYYYMMDD格式)
+        # 转换日期字段为datetime类型 (确保MySQL正确存储为datetime格式)
         df['trade_date'] = df['trade_date'].apply(
-            lambda x: x.strftime('%Y%m%d') if hasattr(x, 'strftime') else str(x).replace('-', '')
+            lambda x: pd.to_datetime(x) if not pd.api.types.is_datetime64_any_dtype(x) else x
         )
         
         # 使用MySQL管理器保存数据
@@ -784,9 +784,9 @@ class DailyDataManager:
         # 构建表名
         table_name = "daily_data"
         
-        # 转换日期字段为字符串类型 (YYYYMMDD格式)
+        # 转换日期字段为datetime类型 (确保MySQL正确存储为datetime格式)
         df['trade_date'] = df['trade_date'].apply(
-            lambda x: x.strftime('%Y%m%d') if hasattr(x, 'strftime') else str(x).replace('-', '')
+            lambda x: pd.to_datetime(x) if not pd.api.types.is_datetime64_any_dtype(x) else x
         )
         
         # 使用公共方法获取查询语句（包含状态字段）
@@ -866,7 +866,7 @@ if __name__ == "__main__":
     
     # 测试fetch_all_stocks_daily_data_period（使用新的按交易日方式）
     print("\n🧪 测试 fetch_all_stocks_daily_data_period（按交易日方式）...")
-    all_stocks_data = daily_manager.fetch_all_stocks_daily_data_period("20250101", "20250927", save_to_mysql=True,incremental_save=True)
+    all_stocks_data = daily_manager.fetch_all_stocks_daily_data_period("20250927", "20250930", save_to_mysql=True,incremental_save=True)
     print(f"获取到 {len(all_stocks_data)} 只股票的数据")
 
     # # 测试fetch_stocks_list_daily_data_period（使用新的按交易日方式）
@@ -874,19 +874,4 @@ if __name__ == "__main__":
     # stocks_list = ["000001.SZ", "000002.SZ"]
     # stocks_data = daily_manager.fetch_stocks_list_daily_data_period(stocks_list, "20250921", "20250926", save_to_mysql=True)
     # print(f"获取到 {len(stocks_data)} 只指定股票的数据")
-
-    # 原始方法测试（保留以供对比）
-    print("\n🧪 原始方法测试（对比用）...")
-    # 获取并保存000001.SZ在20250926的交易数据
-    #df = daily_manager.fetch_and_save_daily_data("000001.SZ", "20250926")
-    # df = daily_manager.fetch_and_save_daily_data("000001.SZ", "20250917")
-
-    # # 测试fetch_daily_data_period
-    # df = daily_manager.fetch_daily_data_period("000001.SZ", "20250919", "20250926")
-    # print(df)
-
-    # # 测试fetch_and_save_daily_data_period
-    # df = daily_manager.fetch_and_save_daily_data_period("000001.SZ", "20250919", "20250926")
-    # print(df)
-
 

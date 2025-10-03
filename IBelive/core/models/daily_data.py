@@ -14,7 +14,7 @@ class DailyData:
     
     # 实例字段
     ts_code: str = ""           # 股票代码
-    trade_date: str = ""        # 交易日期（YYYYMMDD格式）
+    trade_date: date = None      # 交易日期（datetime.date类型）
     open: float = 0.0           # 开盘价
     high: float = 0.0           # 最高价
     low: float = 0.0            # 最低价
@@ -33,4 +33,11 @@ class DailyData:
     @classmethod
     def from_dict(cls, data_dict):
         """从字典创建DailyData实例"""
+        # 处理trade_date字段转换
+        if 'trade_date' in data_dict and isinstance(data_dict['trade_date'], str):
+            # 将YYYYMMDD格式的字符串转换为date对象
+            date_str = data_dict['trade_date']
+            if len(date_str) == 8 and date_str.isdigit():
+                data_dict['trade_date'] = date(int(date_str[:4]), int(date_str[4:6]), int(date_str[6:8]))
+        
         return cls(**data_dict)
