@@ -549,12 +549,12 @@ class WeeklyDataManager:
             
             print(f"\n🎉 完成! 成功获取 {len(result_data)} 只股票的周线数据")
             
-            # 保存合并后的数据到CSV
-            if result_data:
-                combined_df = pd.concat(result_data.values(), ignore_index=True)
-                combined_filename = f"{self.data_dir}/weekly_all_stocks_{start_date}_{end_date}.csv"
-                combined_df.to_csv(combined_filename, index=False, encoding="utf-8-sig")
-                print(f"💾 合并数据已保存到 {combined_filename}")
+            # # 保存合并后的数据到CSV
+            # if result_data:
+            #     combined_df = pd.concat(result_data.values(), ignore_index=True)
+            #     combined_filename = f"{self.data_dir}/weekly_all_stocks_{start_date}_{end_date}.csv"
+            #     combined_df.to_csv(combined_filename, index=False, encoding="utf-8-sig")
+            #     print(f"💾 合并数据已保存到 {combined_filename}")
             
             return result_data
             

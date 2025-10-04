@@ -419,10 +419,10 @@ class MonthlyDataManager:
             combined_df = pd.concat(all_data, ignore_index=True)
             print(f"✅ 成功获取所有股票月线数据，共 {len(combined_df)} 条记录")
             
-            # 保存合并后的数据到CSV
-            csv_filename = f"{self.data_dir}/monthly_all_stocks_{start_date}_{end_date}.csv"
-            combined_df.to_csv(csv_filename, index=False, encoding="utf-8-sig")
-            print(f"✅ 所有股票月线数据已保存到 {csv_filename}")
+            # # 保存合并后的数据到CSV
+            # csv_filename = f"{self.data_dir}/monthly_all_stocks_{start_date}_{end_date}.csv"
+            # combined_df.to_csv(csv_filename, index=False, encoding="utf-8-sig")
+            # print(f"✅ 所有股票月线数据已保存到 {csv_filename}")
             
             return combined_df
         else:
