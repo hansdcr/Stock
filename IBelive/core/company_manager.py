@@ -3,9 +3,6 @@ import os
 import sys
 import pandas as pd
 
-THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, THIS_DIR)
-
 # 导入模型
 from models.companies import Company
 from mysql_manager import MySQLManager

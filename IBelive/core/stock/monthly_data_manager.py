@@ -7,9 +7,9 @@ import os
 import pandas as pd
 import tushare
 from typing import Dict, List, Optional
-from models.monthly_data import MonthlyData
-from mysql_manager import MySQLManager
-from company_manager import CompanyManager
+from ..models.monthly_data import MonthlyData
+from ..mysql_manager import MySQLManager
+from .company_manager import CompanyManager
 
 
 class MonthlyDataManager:

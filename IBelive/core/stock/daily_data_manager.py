@@ -6,8 +6,8 @@ import os
 import pandas as pd
 import tushare
 from typing import Dict, List, Optional
-from models.daily_data import DailyData
-from mysql_manager import MySQLManager
+from ..models.daily_data import DailyData
+from ..mysql_manager import MySQLManager
 
 
 class DailyDataManager:

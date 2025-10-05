@@ -7,9 +7,9 @@ import os
 import pandas as pd
 import tushare
 from typing import Dict, List, Optional
-from models.weekly_data import WeeklyData
-from mysql_manager import MySQLManager
-from company_manager import CompanyManager
+from ..models.weekly_data import WeeklyData
+from ..mysql_manager import MySQLManager
+from ..company_manager import CompanyManager
 
 
 class WeeklyDataManager:
