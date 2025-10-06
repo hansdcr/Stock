@@ -9,7 +9,7 @@ import tushare
 from typing import Dict, List, Optional
 from ..models.daily_basic import DailyBasic
 from ..mysql_manager import MySQLManager
-from .company_manager import CompanyManager
+from ..company_manager import CompanyManager
 
 
 class DailyBasicManager:

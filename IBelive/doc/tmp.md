@@ -1,0 +1,1 @@
+参考 daily_data_manager.py 和文档 https://tushare.pro/document/2?doc_id=95 获取ETF指数的日线数据信息，并保存到数据库。1、数据获取方法使用官方推荐的方式，按照日期循环数据。2、每50条数据保存一次mysql避免终端导致数据丢失。3、可以通过输入开始和结束日期获取所有etf的数据。4、新的文件放在core/etf目录下
