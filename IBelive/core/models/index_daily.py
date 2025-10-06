@@ -4,8 +4,8 @@ from datetime import date
 
 
 @dataclass
-class ETFIndexDaily:
-    """ETF指数日线数据模型"""
+class IndexDaily:
+    """指数日线数据模型"""
 
     # 类变量：默认字段列表（用于API查询）
     DEFAULT_FIELDS: ClassVar[List[str]] = [
@@ -33,7 +33,7 @@ class ETFIndexDaily:
 
     @classmethod
     def from_dict(cls, data_dict):
-        """从字典创建ETFIndexDaily实例"""
+        """从字典创建IndexDaily实例"""
         # 处理trade_date字段转换
         if 'trade_date' in data_dict and isinstance(data_dict['trade_date'], str):
             # 将YYYYMMDD格式的字符串转换为date对象
