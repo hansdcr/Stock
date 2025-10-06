@@ -200,9 +200,16 @@ class MySQLManager:
         :return: 查询结果的DataFrame，失败返回None
         """
         try:
-            # 构建SELECT子句
+            # 构建SELECT子句（处理保留关键字）
             if columns:
-                columns_str = ", ".join(columns)
+                # 对可能的关键字进行转义
+                escaped_columns = []
+                for col in columns:
+                    if col.upper() in ['CHANGE', 'SELECT', 'FROM', 'WHERE', 'ORDER', 'GROUP', 'BY', 'LIMIT', 'TABLE', 'DATABASE']:
+                        escaped_columns.append(f"`{col}`")
+                    else:
+                        escaped_columns.append(col)
+                columns_str = ", ".join(escaped_columns)
             else:
                 columns_str = "*"
             
@@ -228,21 +235,17 @@ class MySQLManager:
                 return None
             
             # 获取列名
-            if not self._connection or not self._connection.is_connected():
-                self.connect()
-            
-            cursor = self._connection.cursor()
-            cursor.execute(f"SELECT * FROM {table_name} LIMIT 0")
-            column_names = [desc[0] for desc in cursor.description]
-            cursor.close()
-            
-            # 如果指定了列，使用指定的列名
-            if columns:
-                # 确保查询结果列数与指定列数匹配
-                if len(result[0]) == len(columns):
+            if result:
+                if columns and len(result[0]) == len(columns):
+                    # 如果指定了列名且列数匹配，使用指定的列名
                     column_names = columns
                 else:
-                    print(f"⚠️  查询列数({len(result[0])})与指定列数({len(columns)})不匹配，使用实际列名")
+                    # 使用默认列名（col_0, col_1, ...）
+                    column_names = [f'col_{i}' for i in range(len(result[0]))]
+                    print(f"⚠️  使用默认列名: {column_names}")
+            else:
+                # 如果没有结果，返回空DataFrame
+                return pd.DataFrame()
             
             # 转换为DataFrame
             df = pd.DataFrame(result, columns=column_names)

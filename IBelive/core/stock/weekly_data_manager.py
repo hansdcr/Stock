@@ -615,16 +615,16 @@ class WeeklyDataManager:
             return []
 
 
-# 获取从20250101到20250930的所有股票周线数据并保存到数据库
-if __name__ == "__main__":
-    import tushare as ts
-    from parse_config import ParseConfig
-    config = ParseConfig()
+# # 获取从20250101到20250930的所有股票周线数据并保存到数据库
+# if __name__ == "__main__":
+#     import tushare as ts
+#     from parse_config import ParseConfig
+#     config = ParseConfig()
 
-    pro = ts.pro_api(config.get_token())
-    weekly_manager = WeeklyDataManager(config, pro)
+#     pro = ts.pro_api(config.get_token())
+#     weekly_manager = WeeklyDataManager(config, pro)
     
-    # 示例：获取所有股票从20250919到20250930的周线数据
-    weekly_manager.fetch_all_stocks_weekly_data_period("20250101", "20250930")
+#     # 示例：获取所有股票从20250919到20250930的周线数据
+#     weekly_manager.fetch_all_stocks_weekly_data_period("20250101", "20250930")
 
 

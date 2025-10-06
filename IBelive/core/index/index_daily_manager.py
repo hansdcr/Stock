@@ -63,10 +63,133 @@ class IndexDailyManager:
             df = self._preprocess_index_daily_data(df)
             
             return df
+        except Exception as e:
+            print(f"❌ 获取指数 {ts_code} 在 {trade_date} 的交易数据时发生错误: {e}")
+            return None
+
+    def get_index_daily_data_from_mysql(
+        self, 
+        ts_codes: Optional[List[str]] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        fields: Optional[List[str]] = None
+    ) -> pd.DataFrame:
+        """
+        从MySQL数据库获取指数日线数据
+        
+        :param ts_codes: 指数代码列表，默认None表示所有指数
+        :param start_date: 开始日期，格式YYYYMMDD
+        :param end_date: 结束日期，格式YYYYMMDD
+        :param fields: 要获取的字段列表，默认None表示所有字段
+        :return: pandas DataFrame 包含指数日线数据
+        """
+        try:
+            # 构建条件字符串和参数
+            conditions = []
+            params = []
+            
+            # 添加指数代码过滤条件
+            if ts_codes:
+                placeholders = ",".join(["%s"] * len(ts_codes))
+                conditions.append(f"ts_code IN ({placeholders})")
+                params.extend(ts_codes)
+            
+            # 添加日期过滤条件
+            if start_date:
+                start_dt = pd.to_datetime(start_date, format='%Y%m%d')
+                conditions.append("trade_date >= %s")
+                params.append(start_dt.strftime('%Y-%m-%d'))
+            
+            if end_date:
+                end_dt = pd.to_datetime(end_date, format='%Y%m%d')
+                conditions.append("trade_date <= %s")
+                params.append(end_dt.strftime('%Y-%m-%d'))
+            
+            # 构建条件字符串
+            where_clause = " AND ".join(conditions) if conditions else None
+            
+            # 执行查询
+            df = self.mysql_manager.query_data(
+                table_name="index_daily_data",
+                columns=fields,
+                conditions=where_clause,
+                params=params,
+                order_by="ts_code, trade_date"
+            )
+            
+            if df is None or df.empty:
+                print("⚠️  从MySQL未找到符合条件的指数日线数据")
+                return pd.DataFrame()
+            
+            # 如果返回的是默认列名，重命名为实际列名
+            if fields and len(df.columns) == len(fields):
+                df.columns = fields
+            
+            print(f"✅ 从MySQL成功获取 {len(df)} 条指数日线数据")
+            return df
             
         except Exception as e:
-            print(f"❌ 获取指数交易数据失败: {e}")
-            return None
+            print(f"❌ 从MySQL获取指数日线数据失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return pd.DataFrame()
+
+    def get_index_daily_data_by_trade_date_from_mysql(
+        self, 
+        trade_date: str,
+        ts_codes: Optional[List[str]] = None,
+        fields: Optional[List[str]] = None
+    ) -> pd.DataFrame:
+        """
+        从MySQL数据库获取指定交易日的指数日线数据
+        
+        :param trade_date: 交易日期，格式YYYYMMDD
+        :param ts_codes: 指数代码列表，默认None表示所有指数
+        :param fields: 要获取的字段列表，默认None表示所有字段
+        :return: pandas DataFrame 包含指定交易日的指数日线数据
+        """
+        try:
+            # 转换日期格式
+            trade_dt = pd.to_datetime(trade_date, format='%Y%m%d')
+            
+            # 构建条件字符串和参数
+            conditions = ["trade_date = %s"]
+            params = [trade_dt.strftime('%Y-%m-%d')]
+            
+            # 添加指数代码过滤条件
+            if ts_codes:
+                placeholders = ",".join(["%s"] * len(ts_codes))
+                conditions.append(f"ts_code IN ({placeholders})")
+                params.extend(ts_codes)
+            
+            # 构建条件字符串
+            where_clause = " AND ".join(conditions) if conditions else None
+            
+            # 执行查询
+            df = self.mysql_manager.query_data(
+                table_name="index_daily_data",
+                columns=fields,
+                conditions=where_clause,
+                params=params,
+                order_by="ts_code"
+            )
+            
+            if df is None or df.empty:
+                print(f"⚠️  从MySQL未找到 {trade_date} 的指数日线数据")
+                return pd.DataFrame()
+            
+            # 如果返回的是默认列名，重命名为实际列名
+            if fields and len(df.columns) == len(fields):
+                df.columns = fields
+            
+            print(f"✅ 从MySQL成功获取 {trade_date} 的 {len(df)} 条指数日线数据")
+            return df
+            
+        except Exception as e:
+            print(f"❌ 从MySQL获取 {trade_date} 的指数日线数据失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return pd.DataFrame()
 
     def fetch_all_index_daily_data_period(
         self, 

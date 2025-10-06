@@ -430,31 +430,31 @@ class MonthlyDataManager:
             return pd.DataFrame()
 
 
-if __name__ == "__main__":
-    # 示例用法
-    import tushare as ts
-    from parse_config import ParseConfig
+# # if __name__ == "__main__":
+#     # 示例用法
+#     import tushare as ts
+#     from parse_config import ParseConfig
     
-    # 初始化配置和Tushare Pro API
-    config = ParseConfig()
-    pro = ts.pro_api(config.get_token())
+#     # 初始化配置和Tushare Pro API
+#     config = ParseConfig()
+#     pro = ts.pro_api(config.get_token())
     
-    # 创建月线数据管理器
-    monthly_manager = MonthlyDataManager(config, pro)
+#     # 创建月线数据管理器
+#     monthly_manager = MonthlyDataManager(config, pro)
     
-    # # 示例1：获取单只股票的月线数据
-    # print("=== 示例1：获取单只股票月线数据 ===")
-    # df_single = monthly_manager.fetch_monthly_data("000001.SZ", start_date="20250901", end_date="20251001")
-    # if df_single is not None:
-    #     monthly_manager.save_monthly_data_to_csv(df_single, "000001.SZ")
+#     # # 示例1：获取单只股票的月线数据
+#     # print("=== 示例1：获取单只股票月线数据 ===")
+#     # df_single = monthly_manager.fetch_monthly_data("000001.SZ", start_date="20250901", end_date="20251001")
+#     # if df_single is not None:
+#     #     monthly_manager.save_monthly_data_to_csv(df_single, "000001.SZ")
     
-    # 示例2：获取所有股票的月线数据（按日期循环）
-    print("\n=== 示例2：获取所有股票月线数据 ===")
-    df_all = monthly_manager.fetch_all_stocks_monthly_data_period(
-        start_date="20250101", 
-        end_date="20251001",
-        save_to_mysql=True,
-        batch_size=50
-    )
+#     # 示例2：获取所有股票的月线数据（按日期循环）
+#     print("\n=== 示例2：获取所有股票月线数据 ===")
+#     df_all = monthly_manager.fetch_all_stocks_monthly_data_period(
+#         start_date="20250101", 
+#         end_date="20251001",
+#         save_to_mysql=True,
+#         batch_size=50
+#     )
     
-    print("✅ 月线数据获取完成！")
+#     print("✅ 月线数据获取完成！")
