@@ -10,45 +10,64 @@ import pandas as pd
 
 
 class MySQLManager:
-    """MySQL数据库管理工具类"""
+    """MySQL数据库管理工具类（单例模式）"""
     
-    def __init__(self, config):
+    _instance = None
+    _connection = None
+    _config = None
+    
+    def __new__(cls, config=None):
+        """
+        单例模式实现
+        
+        :param config: 配置对象，需要包含get_mysql_config()方法
+        """
+        if cls._instance is None:
+            cls._instance = super(MySQLManager, cls).__new__(cls)
+            if config:
+                cls._config = config
+                cls._mysql_config = config.get_mysql_config()
+        return cls._instance
+    
+    def __init__(self, config=None):
         """
         初始化MySQL管理器
         
         :param config: 配置对象，需要包含get_mysql_config()方法
         """
-        self.config = config
-        self.mysql_config = config.get_mysql_config()
-        self.connection = None
+        if config and self._config is None:
+            self._config = config
+            self._mysql_config = config.get_mysql_config()
     
     def connect(self) -> bool:
         """建立数据库连接"""
         try:
-            self.connection = mysql.connector.connect(
-                host=self.mysql_config['host'],
-                port=self.mysql_config['port'],
-                user=self.mysql_config['user'],
-                password=self.mysql_config['password'],
-                database=self.mysql_config['db']
-            )
-            return self.connection.is_connected()
+            if self._connection is None or not self._connection.is_connected():
+                self._connection = mysql.connector.connect(
+                    host=self._mysql_config['host'],
+                    port=self._mysql_config['port'],
+                    user=self._mysql_config['user'],
+                    password=self._mysql_config['password'],
+                    database=self._mysql_config['db']
+                )
+            return self._connection.is_connected()
         except Error as e:
             print(f"❌ MySQL连接失败: {e}")
             return False
     
     def disconnect(self):
         """关闭数据库连接"""
-        if self.connection and self.connection.is_connected():
-            self.connection.close()
+        if self._connection and self._connection.is_connected():
+            self._connection.close()
+            self._connection = None
     
     def execute_query(self, query: str, params: Optional[list] = None) -> Optional[list]:
         """执行查询语句并返回结果"""
         try:
-            if not self.connection or not self.connection.is_connected():
+            if not self._connection or not self._connection.is_connected():
                 self.connect()
             
-            cursor = self.connection.cursor()
+            cursor = self._connection.cursor()
             if params:
                 cursor.execute(query, params)
             else:
@@ -65,28 +84,28 @@ class MySQLManager:
     def execute_many(self, query: str, data: list) -> bool:
         """批量执行插入/更新语句"""
         try:
-            if not self.connection or not self.connection.is_connected():
+            if not self._connection or not self._connection.is_connected():
                 self.connect()
             
-            cursor = self.connection.cursor()
+            cursor = self._connection.cursor()
             cursor.executemany(query, data)
-            self.connection.commit()
+            self._connection.commit()
             cursor.close()
             return True
             
         except Error as e:
             print(f"❌ 批量执行失败: {e}")
-            if self.connection and self.connection.is_connected():
-                self.connection.rollback()
+            if self._connection and self._connection.is_connected():
+                self._connection.rollback()
             return False
     
     def create_table_if_not_exists(self, table_name: str, create_table_sql: str) -> bool:
         """创建表（如果不存在）"""
         try:
-            if not self.connection or not self.connection.is_connected():
+            if not self._connection or not self._connection.is_connected():
                 self.connect()
             
-            cursor = self.connection.cursor()
+            cursor = self._connection.cursor()
             cursor.execute(create_table_sql)
             cursor.close()
             return True
@@ -209,10 +228,10 @@ class MySQLManager:
                 return None
             
             # 获取列名
-            if not self.connection or not self.connection.is_connected():
+            if not self._connection or not self._connection.is_connected():
                 self.connect()
             
-            cursor = self.connection.cursor()
+            cursor = self._connection.cursor()
             cursor.execute(f"SELECT * FROM {table_name} LIMIT 0")
             column_names = [desc[0] for desc in cursor.description]
             cursor.close()
