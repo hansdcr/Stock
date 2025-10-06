@@ -21,7 +21,7 @@ class CSI300RelativeStrengthStrategy(BaseStrategy):
         # 策略参数
         self.ma_period = 90  # 移动平均线周期（90日）
         self.min_volume = 1000000  # 最小成交量（股）
-        self.min_outperformance_days = 72  # 最小跑赢天数（80%，90天*0.8）
+        self.min_outperformance_days = 54  # 最小跑赢天数（80%，90天*0.8）
         self.min_total_score = 0  # 最小总积分
         
         # Tushare Pro API
@@ -54,16 +54,16 @@ class CSI300RelativeStrengthStrategy(BaseStrategy):
             return False
     
     def _get_csi300_data(self):
-        """获取沪深300指数历史数据（120个交易日）"""
+        """获取沪深300指数历史数据（足够计算90日MA）"""
         print("  获取沪深300指数历史数据...")
         
         # 这里需要根据实际的数据源实现
         # 假设我们从MySQL获取数据
         from ..index.index_daily_manager import IndexDailyManager
         
-        # 计算日期范围（最近90个交易日）
+        # 计算日期范围（需要足够的数据计算90日MA）
         end_date = datetime.now().strftime('%Y%m%d')
-        start_date = (datetime.now() - timedelta(days=135)).strftime('%Y%m%d')  # 多取一些数据用于计算MA
+        start_date = (datetime.now() - timedelta(days=180)).strftime('%Y%m%d')  # 多取一些数据用于计算MA
         
         index_manager = IndexDailyManager(self.config, self.pro)
         # 从MySQL数据库获取沪深300指数数据
@@ -81,31 +81,26 @@ class CSI300RelativeStrengthStrategy(BaseStrategy):
         self.csi300_data = self.csi300_data.sort_values('trade_date')
         self.csi300_data['ma'] = self.csi300_data['close'].rolling(window=self.ma_period).mean()
         
-        # 只保留最近90个交易日的数据（确保有完整的MA计算）
-        self.csi300_data = self.csi300_data.tail(90)
+        # 只保留有完整MA计算的数据
+        self.csi300_data = self.csi300_data.dropna(subset=['ma'])
         
         print(f"  获取到 {len(self.csi300_data)} 条沪深300指数数据（含MA计算）")
     
     def _get_stocks_historical_data(self):
-        """获取个股历史数据（120个交易日）"""
+        """获取个股历史数据（足够计算90日MA）"""
         print("  获取个股历史日线数据...")
         
         # 这里需要根据实际的数据源实现
         # 假设我们从MySQL获取数据
         from ..stock.daily_data_manager import DailyDataManager
         
-        # 获取日期范围（与沪深300数据保持一致）
-        trade_dates = sorted(self.csi300_data['trade_date'].unique())
+        # 获取日期范围（需要足够的数据计算90日MA）
+        end_date = datetime.now().strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=180)).strftime('%Y%m%d')  # 多取一些数据用于计算MA
         
         stock_manager = DailyDataManager(self.config, self.pro)
         
         # 从MySQL数据库获取所有股票在指定日期范围内的数据
-        trade_dates_str = [trade_date.strftime('%Y%m%d') if hasattr(trade_date, 'strftime') else str(trade_date) 
-                          for trade_date in trade_dates]
-        start_date = min(trade_dates_str)
-        end_date = max(trade_dates_str)
-        
-        # 从MySQL获取数据
         all_stocks_data = stock_manager.get_daily_data_from_mysql(
             start_date=start_date,
             end_date=end_date
@@ -128,7 +123,10 @@ class CSI300RelativeStrengthStrategy(BaseStrategy):
             if len(records) >= self.ma_period:  # 确保有足够数据计算MA
                 df = pd.DataFrame(records).sort_values('trade_date')
                 df['ma'] = df['close'].rolling(window=self.ma_period).mean()
-                processed_data.append(df)
+                # 只保留有完整MA计算的数据
+                df = df.dropna(subset=['ma'])
+                if not df.empty:
+                    processed_data.append(df)
         
         if processed_data:
             self.stocks_historical_data = pd.concat(processed_data, ignore_index=True)
