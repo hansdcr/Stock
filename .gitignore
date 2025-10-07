@@ -65,3 +65,5 @@ build/
 config/config.yaml
 IBelive/config/config.yaml
 data/
+mydoc/
+IBelive/mydoc/
