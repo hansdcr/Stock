@@ -13,7 +13,7 @@ from IBelive.core.mysql_manager import MySQLManager
 class MomentumStrategy(BaseStrategy):
     """动量选股策略"""
     
-    def __init__(self, config, pro_api, start_date=None, end_date=None):
+    def __init__(self, config, pro_api, start_date=None, end_date=None, min_data_points=None):
         """
         初始化动量策略
         
@@ -21,12 +21,14 @@ class MomentumStrategy(BaseStrategy):
         :param pro_api: Tushare Pro API对象
         :param start_date: 开始日期，格式：YYYYMMDD
         :param end_date: 结束日期，格式：YYYYMMDD
+        :param min_data_points: 最小数据点数要求，默认为20
         """
         super().__init__(config)
         self.pro = pro_api
         self.mysql_manager = MySQLManager(config)
         self.lookback_period = 20  # 回看周期20天
         self.top_percentage = 0.1  # 选择前10%的股票
+        self.min_data_points = min_data_points or 20  # 最小数据点数要求，可配置
         self.stock_data = None
         self.stock_basic_df = None  # 存储股票基本信息
         self.start_date = start_date
@@ -108,7 +110,7 @@ class MomentumStrategy(BaseStrategy):
     
     def calculate_momentum(self, stock_data: pd.DataFrame) -> pd.DataFrame:
         """计算股票的动量值（过去20日涨幅）"""
-        print("📈 计算股票动量值...")
+        print(f"📈 计算股票动量值（最小数据点数要求: {self.min_data_points}）...")
         
         # 按股票代码分组计算
         momentum_results = []
@@ -119,7 +121,7 @@ class MomentumStrategy(BaseStrategy):
             group = group.sort_values('trade_date')
             
             # 使用实际可用的数据点计算动量
-            if len(group) >= 20:  # 至少需要20个数据点才能计算涨幅
+            if len(group) >= self.min_data_points:  # 至少需要指定数量的数据点才能计算涨幅
                 # 计算整个期间的涨幅
                 start_close = group.iloc[0]['close']
                 end_close = group.iloc[-1]['close']
@@ -146,7 +148,7 @@ class MomentumStrategy(BaseStrategy):
                 # 记录数据点数不够的股票
                 skipped_stocks.append({
                     'ts_code': ts_code,
-                    'reason': f'数据点数不足（需要至少2个，实际{len(group)}个）',
+                    'reason': f'数据点数不足（需要至少{self.min_data_points}个，实际{len(group)}个）',
                     'data_points': len(group)
                 })
         
@@ -251,18 +253,18 @@ class MomentumStrategy(BaseStrategy):
         return True
 
 
-def test_momentum_strategy():
+def test_momentum_strategy(min_data_points=None):
     """测试动量策略（使用默认日期）"""
     from IBelive.core.parse_config import ParseConfig
     
-    print("🚀 开始测试动量选股策略（默认日期）...")
+    print(f"🚀 开始测试动量选股策略（默认日期，最小数据点数: {min_data_points or 20}）...")
     
     # 初始化配置
     config = ParseConfig()
     pro = ts.pro_api(config.get_token())
     
     # 创建策略实例（使用默认日期）
-    strategy = MomentumStrategy(config, pro)
+    strategy = MomentumStrategy(config, pro, min_data_points=min_data_points)
     
     # 运行策略
     results = strategy.run()
@@ -270,18 +272,18 @@ def test_momentum_strategy():
     return results
 
 
-def test_momentum_strategy_with_dates(start_date, end_date):
+def test_momentum_strategy_with_dates(start_date, end_date, min_data_points=None):
     """测试动量策略（使用指定日期）"""
     from IBelive.core.parse_config import ParseConfig
     
-    print(f"🚀 开始测试动量选股策略（日期范围: {start_date} 到 {end_date}）...")
+    print(f"🚀 开始测试动量选股策略（日期范围: {start_date} 到 {end_date}，最小数据点数: {min_data_points or 20}）...")
     
     # 初始化配置
     config = ParseConfig()
     pro = ts.pro_api(config.get_token())
     
     # 创建策略实例（使用指定日期）
-    strategy = MomentumStrategy(config, pro, start_date=start_date, end_date=end_date)
+    strategy = MomentumStrategy(config, pro, start_date=start_date, end_date=end_date, min_data_points=min_data_points)
     
     # 运行策略
     results = strategy.run()

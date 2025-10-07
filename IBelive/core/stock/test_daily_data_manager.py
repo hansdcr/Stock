@@ -28,7 +28,7 @@ def test_daily_data_manager():
     daily_data_manager = DailyDataManager(config, pro)
     
     # 测试时间段 - 使用已知的真实交易日
-    start_date = "20230101"
+    start_date = "2020101"
     end_date = "20231231"
     
     print(f"📅 测试时间段: {start_date} 到 {end_date}")
