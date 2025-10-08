@@ -122,21 +122,54 @@ class MomentumStrategy(BaseStrategy):
             
             # 使用实际可用的数据点计算动量
             if len(group) >= self.min_data_points:  # 至少需要指定数量的数据点才能计算涨幅
-                # 计算整个期间的涨幅
-                start_close = group.iloc[0]['close']
-                end_close = group.iloc[-1]['close']
+                # 使用移动平均价格减少极值影响
+                # 取前25%数据点的平均作为期初价格，后25%数据点的平均作为期末价格
+                window_size = max(3, len(group) // 4)  # 至少3个数据点
+                start_close = group.head(window_size)['close'].mean()
+                end_close = group.tail(window_size)['close'].mean()
                 
                 if start_close > 0:  # 避免除零错误
                     momentum = (end_close - start_close) / start_close * 100
-                    momentum_results.append({
-                        'ts_code': ts_code,
-                        'momentum': momentum,
-                        'start_date': group.iloc[0]['trade_date'],
-                        'end_date': group.iloc[-1]['trade_date'],
-                        'start_close': start_close,
-                        'end_close': end_close,
-                        'data_points': len(group)
-                    })
+                    
+                    # 检查价格稳定性（排除异常波动）
+                    price_std = group['close'].std()
+                    price_mean = group['close'].mean()
+                    volatility_ratio = price_std / price_mean if price_mean > 0 else 0
+                    
+                    # 检查趋势一致性（使用简单的线性回归计算斜率）
+                    n = len(group)
+                    x = list(range(n))
+                    y = group['close'].values
+                    
+                    # 手动计算线性回归斜率
+                    x_mean = sum(x) / n
+                    y_mean = sum(y) / n
+                    numerator = sum((x[i] - x_mean) * (y[i] - y_mean) for i in range(n))
+                    denominator = sum((x[i] - x_mean) ** 2 for i in range(n))
+                    slope = numerator / denominator if denominator != 0 else 0
+                    trend_consistency = abs(slope) / (price_std + 1e-10)  # 避免除零
+                    
+                    # 只有波动率在合理范围内且趋势一致才纳入结果
+                    if volatility_ratio <= 0.5 and trend_consistency >= 0.1:  # 波动率不超过50%且趋势明显
+                        momentum_results.append({
+                            'ts_code': ts_code,
+                            'momentum': momentum,
+                            'start_date': group.iloc[0]['trade_date'],
+                            'end_date': group.iloc[-1]['trade_date'],
+                            'start_close': start_close,
+                            'end_close': end_close,
+                            'data_points': len(group),
+                            'volatility': volatility_ratio,
+                            'trend_strength': trend_consistency
+                        })
+                    else:
+                        # 记录被过滤的股票
+                        reason = f'价格波动率过高（{volatility_ratio:.2%}）' if volatility_ratio > 0.5 else f'趋势不明显（强度: {trend_consistency:.3f}）'
+                        skipped_stocks.append({
+                            'ts_code': ts_code,
+                            'reason': reason,
+                            'data_points': len(group)
+                        })
                 else:
                     # 记录除零错误的股票
                     skipped_stocks.append({
