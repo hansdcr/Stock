@@ -287,8 +287,202 @@ class MomentumStrategy(BaseStrategy):
         print("=" * 100)
         print(f"📊 共选出 {len(results)} 只动量最强的股票")
         
-        # 这里可以添加保存到数据库或文件的逻辑
-        return True
+        # 保存选股结果到数据库
+        success = self._save_selected_stocks_to_db(results)
+        
+        # 保存选中股票的完整日线数据到新表
+        if success:
+            self._save_complete_daily_data_to_new_table(results)
+        
+        return success
+    
+    def _save_selected_stocks_to_db(self, results: List[Dict[str, Any]]) -> bool:
+        """保存选中的股票信息到数据库"""
+        if not results:
+            return False
+            
+        try:
+            # 转换为DataFrame
+            results_df = pd.DataFrame(results)
+            
+            # 定义表名和字段
+            table_name = "momentum_selected_stocks"
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS momentum_selected_stocks (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                ts_code VARCHAR(20) NOT NULL,
+                name VARCHAR(100),
+                momentum DECIMAL(10,2),
+                start_date DATE,
+                end_date DATE,
+                start_close DECIMAL(10,2),
+                end_close DECIMAL(10,2),
+                data_points INT,
+                strategy VARCHAR(50),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+            
+            # 创建表
+            if not self.mysql_manager.create_table_if_not_exists(table_name, create_table_sql):
+                print("❌ 创建选股结果表失败")
+                return False
+            
+            # 准备插入语句
+            insert_query = """
+            INSERT INTO momentum_selected_stocks 
+            (ts_code, name, momentum, start_date, end_date, start_close, end_close, data_points, strategy)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            
+            # 准备数据
+            data_tuples = []
+            for stock in results:
+                data_tuples.append((
+                    stock['ts_code'],
+                    stock.get('name', 'N/A'),
+                    stock['momentum'],
+                    stock['start_date'],
+                    stock['end_date'],
+                    stock['start_close'],
+                    stock['end_close'],
+                    stock['data_points'],
+                    stock.get('strategy', 'momentum_20d')
+                ))
+            
+            # 保存数据
+            success = self.mysql_manager.execute_many(insert_query, data_tuples)
+            
+            if success:
+                print(f"✅ 成功保存 {len(results)} 条选股结果到MySQL表 {table_name}")
+            else:
+                print(f"❌ 保存选股结果到MySQL表 {table_name} 失败")
+            
+            return success
+            
+        except Exception as e:
+            print(f"❌ 保存选股结果失败: {e}")
+            return False
+    
+    def _save_complete_daily_data_to_new_table(self, results: List[Dict[str, Any]]) -> bool:
+        """保存选中股票的完整日线数据到新表strategy_20days_momentum"""
+        if not results:
+            return False
+            
+        try:
+            # 获取选中股票的代码列表
+            selected_ts_codes = [stock['ts_code'] for stock in results]
+            
+            # 从MySQL数据库重新查询选中股票的完整日线数据（所有历史数据）
+            print(f"📊 查询 {len(selected_ts_codes)} 只选中股票的完整日线数据...")
+            
+            # 分批查询以避免SQL语句过长
+            batch_size = 100
+            selected_daily_data_dfs = []
+            
+            for i in range(0, len(selected_ts_codes), batch_size):
+                batch_stocks = selected_ts_codes[i:i + batch_size]
+                print(f"📦 查询第 {i//batch_size + 1} 批选中股票数据 ({len(batch_stocks)} 只)...")
+                
+                batch_df = self.mysql_manager.query_data(
+                    table_name="daily_data",
+                    columns=["ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount"],
+                    conditions=f"ts_code IN ({','.join(['%s'] * len(batch_stocks))})",
+                    params=batch_stocks,
+                    order_by="ts_code, trade_date"
+                )
+                
+                if batch_df is not None and not batch_df.empty:
+                    selected_daily_data_dfs.append(batch_df)
+            
+            # 合并所有批次的数据
+            if selected_daily_data_dfs:
+                selected_daily_data = pd.concat(selected_daily_data_dfs, ignore_index=True)
+            else:
+                selected_daily_data = pd.DataFrame()
+            
+            if selected_daily_data.empty:
+                print("⚠️  未找到选中股票的日线数据")
+                return False
+            
+            print(f"📊 准备保存 {len(selected_daily_data)} 条选中股票的日线数据到新表...")
+            
+            # 定义新表名和字段（与daily_data表结构一致）
+            new_table_name = "strategy_20days_momentum"
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS strategy_20days_momentum (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                ts_code VARCHAR(20),
+                trade_date DATETIME,
+                open FLOAT,
+                high FLOAT,
+                low FLOAT,
+                close FLOAT,
+                pre_close FLOAT,
+                `change` FLOAT,
+                pct_chg FLOAT,
+                vol FLOAT,
+                amount FLOAT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_stock_date (ts_code, trade_date)
+            )
+            """
+            
+            # 创建新表
+            if not self.mysql_manager.create_table_if_not_exists(new_table_name, create_table_sql):
+                print("❌ 创建strategy_20days_momentum表失败")
+                return False
+            
+            # 准备插入语句（与daily_data表结构一致）
+            insert_query = """
+            INSERT INTO strategy_20days_momentum (ts_code, trade_date, open, high, low, close, pre_close, 
+                                                `change`, pct_chg, vol, amount, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            ON DUPLICATE KEY UPDATE
+                open = VALUES(open),
+                high = VALUES(high),
+                low = VALUES(low),
+                close = VALUES(close),
+                pre_close = VALUES(pre_close),
+                `change` = VALUES(`change`),
+                pct_chg = VALUES(pct_chg),
+                vol = VALUES(vol),
+                amount = VALUES(amount),
+                updated_at = CURRENT_TIMESTAMP
+            """
+            
+            # 准备数据
+            data_tuples = []
+            for _, row in selected_daily_data.iterrows():
+                data_tuples.append((
+                    row['ts_code'],
+                    row['trade_date'],
+                    row.get('open', 0.0),
+                    row.get('high', 0.0),
+                    row.get('low', 0.0),
+                    row.get('close', 0.0),
+                    row.get('pre_close', 0.0),
+                    row.get('change', 0.0),
+                    row.get('pct_chg', 0.0),
+                    row.get('vol', 0.0),
+                    row.get('amount', 0.0)
+                ))
+            
+            # 保存数据
+            success = self.mysql_manager.execute_many(insert_query, data_tuples)
+            
+            if success:
+                print(f"✅ 成功保存 {len(data_tuples)} 条日线数据到MySQL表 '{new_table_name}'")
+                print(f"📈 涉及 {len(selected_ts_codes)} 只选中股票")
+            else:
+                print(f"❌ 保存日线数据到MySQL表 '{new_table_name}' 失败")
+            
+            return success
+            
+        except Exception as e:
+            print(f"❌ 保存日线数据失败: {e}")
+            return False
 
 
 def test_momentum_strategy(min_data_points=None, volatility_threshold=None, trend_threshold=None):
