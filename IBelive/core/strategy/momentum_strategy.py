@@ -13,7 +13,8 @@ from IBelive.core.mysql_manager import MySQLManager
 class MomentumStrategy(BaseStrategy):
     """动量选股策略"""
     
-    def __init__(self, config, pro_api, start_date=None, end_date=None, min_data_points=None):
+    def __init__(self, config, pro_api, start_date=None, end_date=None, min_data_points=None, 
+                 volatility_threshold=None, trend_threshold=None):
         """
         初始化动量策略
         
@@ -22,6 +23,8 @@ class MomentumStrategy(BaseStrategy):
         :param start_date: 开始日期，格式：YYYYMMDD
         :param end_date: 结束日期，格式：YYYYMMDD
         :param min_data_points: 最小数据点数要求，默认为20
+        :param volatility_threshold: 波动率阈值，默认为0.5（50%）
+        :param trend_threshold: 趋势一致性阈值，默认为0.1
         """
         super().__init__(config)
         self.pro = pro_api
@@ -29,6 +32,8 @@ class MomentumStrategy(BaseStrategy):
         self.lookback_period = 20  # 回看周期20天
         self.top_percentage = 0.1  # 选择前10%的股票
         self.min_data_points = min_data_points or 20  # 最小数据点数要求，可配置
+        self.volatility_threshold = volatility_threshold or 0.5  # 波动率阈值，可配置
+        self.trend_threshold = trend_threshold or 0.1  # 趋势一致性阈值，可配置
         self.stock_data = None
         self.stock_basic_df = None  # 存储股票基本信息
         self.start_date = start_date
@@ -150,7 +155,7 @@ class MomentumStrategy(BaseStrategy):
                     trend_consistency = abs(slope) / (price_std + 1e-10)  # 避免除零
                     
                     # 只有波动率在合理范围内且趋势一致才纳入结果
-                    if volatility_ratio <= 0.5 and trend_consistency >= 0.1:  # 波动率不超过50%且趋势明显
+                    if volatility_ratio <= self.volatility_threshold and trend_consistency >= self.trend_threshold:
                         momentum_results.append({
                             'ts_code': ts_code,
                             'momentum': momentum,
@@ -164,7 +169,7 @@ class MomentumStrategy(BaseStrategy):
                         })
                     else:
                         # 记录被过滤的股票
-                        reason = f'价格波动率过高（{volatility_ratio:.2%}）' if volatility_ratio > 0.5 else f'趋势不明显（强度: {trend_consistency:.3f}）'
+                        reason = f'价格波动率过高（{volatility_ratio:.2%} > {self.volatility_threshold:.0%}）' if volatility_ratio > self.volatility_threshold else f'趋势不明显（强度: {trend_consistency:.3f} < {self.trend_threshold:.3f}）'
                         skipped_stocks.append({
                             'ts_code': ts_code,
                             'reason': reason,
@@ -286,18 +291,24 @@ class MomentumStrategy(BaseStrategy):
         return True
 
 
-def test_momentum_strategy(min_data_points=None):
+def test_momentum_strategy(min_data_points=None, volatility_threshold=None, trend_threshold=None):
     """测试动量策略（使用默认日期）"""
     from IBelive.core.parse_config import ParseConfig
     
     print(f"🚀 开始测试动量选股策略（默认日期，最小数据点数: {min_data_points or 20}）...")
+    if volatility_threshold is not None:
+        print(f"📊 波动率阈值: {volatility_threshold}")
+    if trend_threshold is not None:
+        print(f"📈 趋势一致性阈值: {trend_threshold}")
     
     # 初始化配置
     config = ParseConfig()
     pro = ts.pro_api(config.get_token())
     
     # 创建策略实例（使用默认日期）
-    strategy = MomentumStrategy(config, pro, min_data_points=min_data_points)
+    strategy = MomentumStrategy(config, pro, min_data_points=min_data_points, 
+                              volatility_threshold=volatility_threshold, 
+                              trend_threshold=trend_threshold)
     
     # 运行策略
     results = strategy.run()
@@ -305,18 +316,26 @@ def test_momentum_strategy(min_data_points=None):
     return results
 
 
-def test_momentum_strategy_with_dates(start_date, end_date, min_data_points=None):
+def test_momentum_strategy_with_dates(start_date, end_date, min_data_points=None, 
+                                      volatility_threshold=None, trend_threshold=None):
     """测试动量策略（使用指定日期）"""
     from IBelive.core.parse_config import ParseConfig
     
     print(f"🚀 开始测试动量选股策略（日期范围: {start_date} 到 {end_date}，最小数据点数: {min_data_points or 20}）...")
+    if volatility_threshold is not None:
+        print(f"📊 波动率阈值: {volatility_threshold}")
+    if trend_threshold is not None:
+        print(f"📈 趋势一致性阈值: {trend_threshold}")
     
     # 初始化配置
     config = ParseConfig()
     pro = ts.pro_api(config.get_token())
     
     # 创建策略实例（使用指定日期）
-    strategy = MomentumStrategy(config, pro, start_date=start_date, end_date=end_date, min_data_points=min_data_points)
+    strategy = MomentumStrategy(config, pro, start_date=start_date, end_date=end_date, 
+                              min_data_points=min_data_points,
+                              volatility_threshold=volatility_threshold, 
+                              trend_threshold=trend_threshold)
     
     # 运行策略
     results = strategy.run()
