@@ -94,6 +94,7 @@ class RSIStrategy(BaseStrategy):
     def calculate_rsi_ma(self, rsi_values: pd.Series, period: int = 6) -> pd.Series:
         """
         计算RSI的移动平均值
+        RSI移动平均值的作用是平滑RSI值，减少噪声，更准确地判断趋势
         
         :param rsi_values: RSI值序列
         :param period: 移动平均周期
