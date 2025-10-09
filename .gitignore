@@ -67,6 +67,6 @@ IBelive/config/config.yaml
 data/
 mydoc/
 IBelive/mydoc/
-rsi_visualization/
-IBelive/rsi_visualization/
+rsi_charts/
+IBelive/rsi_charts/
 
