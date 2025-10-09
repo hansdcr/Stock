@@ -213,18 +213,26 @@ def main():
     # 创建可视化实例
     visualizer = RSIVisualization()
     
-    # 随机选择4只股票
-    random_stocks = visualizer.get_random_stocks(4)
+    # 自定义股票选择 - 可以修改这里的股票代码列表
+    custom_stocks = [
+        "000001.SZ",  # 平安银行
+        "600036.SH",  # 招商银行
+        "000333.SZ",  # 美的集团
+        "600519.SH"   # 贵州茅台
+    ]
     
-    if not random_stocks:
-        print("❌ 无法获取随机股票，请确保RSI数据表存在并包含数据")
+    # 或者使用随机选择（取消注释下面这行，注释掉上面的custom_stocks）
+    # custom_stocks = visualizer.get_random_stocks(4)
+    
+    if not custom_stocks:
+        print("❌ 无法获取股票数据，请确保RSI数据表存在并包含数据")
         return
     
-    print(f"📊 选择的随机股票: {random_stocks}")
+    print(f"📊 选择的股票: {custom_stocks}")
     
     # 获取每只股票的RSI数据
     stocks_data = {}
-    for ts_code in random_stocks:
+    for ts_code in custom_stocks:
         print(f"🔍 获取股票 {ts_code} 的RSI数据...")
         rsi_data = visualizer.get_stock_rsi_data(ts_code)
         if rsi_data is not None:
